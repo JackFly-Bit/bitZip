@@ -44,7 +44,7 @@ public:
 	}
 
 	//问题？---怎么创建小堆
-	Node* CreatHuffmanTree(const std::vector<W>& weights)
+	Node* CreatHuffmanTree(const std::vector<W>& weights, const W& invalid)
 	{
 		//注意：优先级队列默认情况是按照小于的方式比较的，然后创建的是一个大堆
 		//小堆：将比较方式修改一下
@@ -52,6 +52,9 @@ public:
 
 		for (auto e : weights)
 		{
+			//过滤掉非法的weights
+			if (invalid == e)
+				continue;
 			q.push(new Node(e));
 		}
 		while (q.size() > 1)
