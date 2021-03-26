@@ -3,7 +3,9 @@
 HashTable::HashTable(ush size)
 : _prev(new ush[2*size])
 , _head(_prev + size)
-{}
+{
+	memset(_prev, 0, 2 * size*sizeof(ush));
+}
 
 HashTable::~HashTable()
 {

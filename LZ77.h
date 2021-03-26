@@ -11,6 +11,8 @@ public:
 	void UNCompressLZ77(const string& filePath);
 private:
 	ush LongestMatch(ush matchHead, ush start, ush& curMatchDist);
+	void WriteFlag(FILE* temp, bool isDist, uch& ch, uch& bitCount);
+	void MergeFile(FILE* fOut, ulg fileSize);
 private:
 	uch* _pWin;
 

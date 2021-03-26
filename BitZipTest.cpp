@@ -25,6 +25,8 @@ using namespace std;
 //		cout << ch << endl;
 //	}
 //}
+
+#if 0
 int main()
 {
 	//TestFile();
@@ -32,5 +34,15 @@ int main()
 	HTCompress htc;
 	htc.CompressFile("1.png");
 	htc.UNCompressFile("compressResult.txt");
+	return 0;
+}
+#endif
+
+#include "LZ77.h"
+int main()
+{
+	LZ77 lz;
+	lz.CompressLZ77("1.txt");
+	lz.UNCompressLZ77("111.txt");
 	return 0;
 }
