@@ -46,3 +46,25 @@ ush HashTable::GetNext(ush& matchHead)
 {
 	return _prev[matchHead & HASH_MASK];
 }
+
+//当先行缓冲区中剩余的待压缩的字节数小于MIN_LOOKAHEAD时，
+//需要将右窗口中的数据搬移到左窗，左窗口的数据丢弃了
+//哈希表中所保存的下标就需要调整
+void HashTable::UpdateHashTable()
+{
+	for (ush i = 0; i < HASH_SIZE; ++i)
+	{
+		if (_head[i] <= WSIZE)
+			_head[i] = 0;
+		else
+			_head[i] -= WSIZE;
+	}
+
+	for (ush i = 0; i < HASH_SIZE; ++i)
+	{
+		if (_prev[i] <= WSIZE)
+			_prev[i] = 0;
+		else
+			_prev[i] -= WSIZE;
+	}
+}

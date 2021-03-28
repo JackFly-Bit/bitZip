@@ -65,7 +65,13 @@ void LZ77::CompressLZ77(const string& filePath)
 		_ht.Insert(hashAddr, _pWin[start + 2], start, matchHead);
 
 		//在插入之后，matchHead会将查找缓冲区中最近的一个匹配的位置带出来
-		if (0 == matchHead)
+		if (matchHead)
+		{
+			//找最长匹配了
+			curMatchLength = LongestMatch(matchHead, start, curMatchDist);//<长度,距离>
+		}
+
+		if (curMatchLength < MIN_MATCH)
 		{
 			//该三个字节之前没有出现过
 			//将当前start位置的字节原封不动的写入到压缩文件单中
@@ -77,9 +83,6 @@ void LZ77::CompressLZ77(const string& filePath)
 		}
 		else
 		{
-			//找最长匹配了
-			curMatchLength = LongestMatch(matchHead, start, curMatchDist);//<长度,距离>
-
 			//将该<长度，距离>对写入到压缩文件中
 			fputc(curMatchLength - 3, fOut);
 			fwrite(&curMatchDist, 2, 1, fOut);
@@ -97,7 +100,10 @@ void LZ77::CompressLZ77(const string& filePath)
 			}
 			++start;
 		}
-		fflush(fOut);
+		//lookahead就是先行缓冲区中剩余的带压缩字节的个数
+		if(lookahead <= MIN_LOOKAHEAD)
+			FILLDate(fIn, lookahead, start);
+
 	}
 	if (bitCount > 0 && bitCount < 8)
 	{
@@ -113,10 +119,28 @@ void LZ77::CompressLZ77(const string& filePath)
 	fclose(fOut);
 }
 
+void LZ77::FILLDate(FILE* fIn, ulg& lookahead, ush& start)
+{
+	if (start > MAX_DIST)
+	{
+		//将右窗口中的数据搬移到左窗
+		memcpy(_pWin, _pWin + WSIZE, WSIZE);
+		start -= WSIZE;
+
+		//注意：更新哈希表
+		_ht.UpdateHashTable();
+
+		//需要向右窗口中补充数据
+		if (!feof(fIn))
+			lookahead += fread(_pWin + WSIZE, 1, WSIZE, fIn);
+	}
+}
+
 ush LZ77::LongestMatch(ush matchHead, ush start, ush& curMatchDist)
 {
 	ush maxLen = 0;
 	uch maxMatchCount = 255;
+	ush limit = start > MAX_DIST ? start - MAX_DIST : 0;
 	do
 	{
 		uch* pScan = _pWin + matchHead;
@@ -141,7 +165,7 @@ ush LZ77::LongestMatch(ush matchHead, ush start, ush& curMatchDist)
 			maxLen = curLength;
 			curMatchDist = curDist;
 		}
-	} while ((matchHead = _ht.GetNext(matchHead)) && maxMatchCount--);
+	} while (((matchHead = _ht.GetNext(matchHead)) > limit) && maxMatchCount--);
 
 	return maxLen;
 }
@@ -214,7 +238,7 @@ void LZ77::UNCompressLZ77(const string& filePath)
 	size_t i = 0;
 	uch chData = 0;
 	ulg compressCount = 0;
-	while (i < flagSize)
+	while (compressCount < fileSize)
 	{
 		if (0 == bitCount)
 		{
@@ -255,10 +279,8 @@ void LZ77::UNCompressLZ77(const string& filePath)
 		}
 		bitCount--;
 		ch <<= 1;
-
-		if (compressCount == fileSize)
-			break;
 	}
+
 	fclose(fIn);
 	fclose(fFlag);
 	fclose(fOut);

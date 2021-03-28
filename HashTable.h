@@ -9,7 +9,7 @@ public:
 
 	void Insert(ush& hashAddr, uch ch, ush pos, ush& matchHead);
 	ush GetNext(ush& matchHead);
-
+	void UpdateHashTable();
 private:
 	void HashFunc(ush& hashAddr, ush ch);
 	ush H_SHIFT();
