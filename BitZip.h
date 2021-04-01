@@ -53,8 +53,7 @@ public:
 	~BitZip();
 
 	void Deflate(const string& filePath);
-	void UNCompressLZ77(const string& filePath);
-
+	void unDeflate(const string& filePath);
 private:
 	void SaveLZ77Result(ush dist, uch length, uch& flag, uch& bitCount, const ulg lookahead);
 	ush LongestMatch(ush matchHead, ush start, ush& curMatchDist);
@@ -68,6 +67,11 @@ private:
 	void GenerateCodeLen(HuffmanTreeNode<ElemInfo>* root, vector<ElemInfo>& elemInfo);
 	void GenerateCodeLen(HuffmanTreeNode<ElemInfo>* root, vector<ElemInfo>& elemInfo, ush len);
 	void GenerateCode(vector<ElemInfo>& codeInfo);
+	void WriteCodeLen();
+
+	void CompressChar(ush ch, uch& bitInfo, uch& bitInfoCount);
+	void CompressLengthDist(uch length, ush dist, uch& bitInfo, uch& bitInfoCount);
+	void Compress(ulg chCode, ush codeLen, uch& bitInfo, uch& bitInfoCount);
 private:
 	uch* _pWin;
 	HashTable _ht;
@@ -79,6 +83,7 @@ private:
 	vector<uch> _flagData;
 
 	bool _isLast; // 是否为最后一个块
+	FILE* fOut;
 
 	///////////////////////////////////////
 	//用来构建huffman树以及编码

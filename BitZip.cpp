@@ -81,6 +81,17 @@ static IntervalSolution lengthInterval[] = {
 	{ 285, 0, { 258, 258 } } };
 /******************************************************************/
 
+
+// 解码表---在解码的时候再添加
+struct DecodeTable
+{
+	int _decodeLen;   // 编码位长
+	int _code;       // 首字符编码
+	ush _lenCount;    // 相同编码长度个数
+	ush _charIndex;   // 符号索引
+};
+
+
 BitZip::BitZip()
 : _pWin(new uch[2 * WSIZE])
 , _ht(WSIZE)
@@ -152,13 +163,14 @@ void BitZip::Deflate(const string& filePath)
 	//让压缩结果的文件与源文件名子相同
 	string fileName;
 	fileName = filePath.substr(0, filePath.rfind('.'));
-	fileName += "bzp";
-	FILE* fOut = fopen(fileName.c_str(), "wb");
+	fileName += ".bzp";
+	fOut = fopen(fileName.c_str(), "wb");
 
 	ush start = 0;
 	uch ch = 0;
 	uch bitCount = 0;
 
+	//LZ77
 	while (lookahead)
 	{
 		ush curMatchLength = 0;
@@ -331,8 +343,57 @@ void BitZip::CompressBlock()
 	GenerateCodeLen(distTree.GetRoot(), _distInfo);
 	GenerateCode(_distInfo);
 
-	//4.压缩
+	//4.保存解压缩需要用到的位长信息
+	WriteCodeLen();
 
+	//5.压缩
+	//取原字符或长度、距离 找对应的编码来进行压缩
+	uch flag = 0;
+	uch bitCount = 0;
+	ush flagIdx = 0;
+	ush distIdx = 0;
+	uch bitInfo = 0;
+	uch bitInfoCount = 0;
+	for (ush i = 0; i < _byteLenData.size(); i++)
+	{
+		if (0 == bitCount)
+		{
+			flag = _flagData[flagIdx++];
+			bitCount = 8;
+		}
+
+		if (flag & 0x80)
+		{
+			// _byteLenDate[i]:长度
+			// _distData[]:距离
+			CompressLengthDist(_byteLenData[i], _distData[distIdx++], bitInfo, bitInfoC
+);
+		}
+		else
+		{
+			//_byteLenData[i]:原字符
+			CompressChar(_byteLenData[i], bitInfo, bitInfoCount);
+		}
+
+		flag <<= 1;
+		bitCount--;
+	}
+
+	//上述for循环中压缩的是：LZ77中的有效数据
+	//最后位置压缩一个256作为块的标记
+	CompressChar(256, bitInfo, bitInfoCount);
+
+	//注意：bitInfo中不一定刚好是8个比特位全部都有效
+	if (bitInfoCount > 0 && bitInfoCount < 8)
+	{
+		bitInfo <<= (8 - bitInfoCount);
+		fputc(bitInfo, fOut);
+	}
+
+	//清空：LZ77的结果buff
+	_byteLenData.clear();
+	_distData.clear();
+	_flagData.clear();
 }
 
 void BitZip::StatAppearCount()
@@ -364,6 +425,12 @@ void BitZip::StatAppearCount()
 		flag <<= 1;
 		bitCount--;
 	}
+
+	// 给块结束标记
+	// 字节[0, 255]
+	// 长度分组区间编码[257, 285]
+	// 256---> 块结束标记
+	_byteLenInfo[256]._appearCount = 1;
 }
 
 ush BitZip::GetIntervalCodeIndex(uch len)
@@ -374,7 +441,7 @@ ush BitZip::GetIntervalCodeIndex(uch len)
 	{
 		if (len >= lengthInterval[i].interval[0] && len <= lengthInterval[i].interval[1])
 		{
-			return 257 + i;
+			return i + 257;
 		}
 	}
 
@@ -458,83 +525,107 @@ void BitZip::GenerateCode(vector<ElemInfo>& codeInfo)
 	}
 }
 
-void BitZip::UNCompressLZ77(const string& filePath)
+//保存解压缩时需要用到的编码位长信息
+void BitZip::WriteCodeLen()
+{
+	if (_isLast)
+		fputc(1, fOut);
+	else
+		fputc(0, fOut);
+
+	for (auto& e : _byteLenInfo)
+	{
+		fputc(e._len, fOut);
+	}
+
+	for (auto& e : _distInfo)
+	{
+		fputc(e._len, fOut);
+	}
+}
+
+void BitZip::CompressChar(ush ch, uch& bitInfo, uch& bitInfoCount)
+{
+	//必须要找到ch的编码---—_byteLenInfo
+	ulg chCode = _byteLenInfo[ch]._chCode; //比如:m--->"110" chCode:6
+	ush codeLen = _byteLenInfo[ch]._len;
+
+	Compress(chCode, codeLen, bitInfo, bitInfoCount);
+}
+
+void BitZip::Compress(ulg chCode, ush codeLen, uch& bitInfo, uch& bitInfoCount)
+{
+	//将ch的编码chCode往压缩文件中去写
+	chCode <<= (64 - codeLen);
+
+	for (ush i = 0; i < codeLen; ++i)
+	{
+		bitInfo <<= 1;
+		if (chCode & 0x8000000000000000)
+			bitInfo |= 1;
+
+		bitInfoCount++;
+		if (8 == bitInfoCount)
+		{
+			fputc(bitInfo, fOut);
+			bitInfo = 0;
+			bitInfoCount = 0;
+		}
+
+		chCode <<= 1;
+	}
+}
+
+void BitZip::CompressLengthDist(uch length, ush dist, uch& bitInfo, uch& bitInfoCount)
+{
+	//1.先压缩长度
+	//注意:长度对应的分组的编码+扩展码
+	//假设:length=20
+	//20属于269的分组 因此需要到_byteLenInfo中找257对应的编码
+	size_t index = GetIntervalCodeIndex(length);
+	ulg chCode = _byteLenInfo[index]._chCode;
+	ush codeLen = _byteLenInfo[index]._len;
+	Compress(chCode, codeLen, bitInfo, bitInfoCount);
+
+	//压缩length所对应的额外的扩展码
+	chCode = length+3 - lengthInterval[index-257].interval[0];
+	codeLen = lengthInterval[index-257].extraBit;
+	Compress(chCode, codeLen, bitInfo, bitInfoCount);
+	//2.压缩距离
+	//假设：距离是20 找20所对应的分组
+	//{8,3,{17, 24}}, // 17:000 18:001 19:010 20:011 21:100 22:101 23:110 24:111
+	index = GetIntervalCodeIndex(dist);
+	chCode = _distInfo[distInterval[index].code]._chCode;
+	codeLen = _distInfo[distInterval[index].code]._len;
+	Compress(chCode, codeLen, bitInfo, bitInfoCount);
+
+	//压缩dist所对应的额外的扩展码
+	chCode = dist - distInterval[index].interval[0];
+	codeLen = distInterval[index].extraBit;
+	Compress(chCode, codeLen, bitInfo, bitInfoCount);
+
+}
+
+void BitZip::unDeflate(const string& filePath)
 {
 	FILE* fIn = fopen(filePath.c_str(), "rb");
-	if (nullptr == fIn)
+
+	while (true)
 	{
-		cout << "待压缩的文件路径有问题" << endl;
-		return;
-	}
-	//获取源文件的大小
-	fseek(fIn, 0 - sizeof(ulg), SEEK_END);
-	ulg fileSize = 0;
-	fread(&fileSize, sizeof(fileSize), 1, fIn);
+		_isLast = fgetc(fIn);
 
-	//获取标记的大小
-	size_t flagSize = 0;
-	fseek(fIn, 0 - sizeof(fileSize)-sizeof(flagSize), SEEK_END);
-	fread(&flagSize, sizeof(flagSize), 1, fIn);
-
-	fseek(fIn, 0, SEEK_SET);
-
-	FILE* fFlag = fopen(filePath.c_str(), "rb");
-	fseek(fFlag, 0 - sizeof(fileSize)-sizeof(flagSize)-flagSize, SEEK_END);
-
-	//解压缩
-	FILE* fOut = fopen("222.txt", "wb");
-
-	FILE* fRead = fopen("222.txt", "rb");
-	uch ch = 0;
-	uch bitCount = 0;
-	size_t i = 0;
-	uch chData = 0;
-	ulg compressCount = 0;
-	while (compressCount < fileSize)
-	{
-		if (0 == bitCount)
+		for (ush i = 0; i < 286; i++)
 		{
-			ch = fgetc(fFlag);
-			bitCount = 8;
-			i++;
+			_distInfo[i]._ch = i;
+			_distInfo[i]._len = fputc();
 		}
-		//检测该比特位是0还是1
-		if (ch & 0x80)
-		{
-			//长度距离对
-			ush matchLength = fgetc(fIn) + 3;
-			ush matchDist = 0;
-			fread(&matchDist, sizeof(matchDist), 1, fIn);
+		// 1.获取编码位长
+		// 2.生成解码表
+		// 3.解码
 
-			//切记:解压缩出来的数据可能还在缓冲区中
-			fflush(fOut);
-
-			fseek(fRead, 0 - matchDist, SEEK_END);
-			compressCount += matchLength;
-
-			while (matchLength)
-			{
-				chData = fgetc(fRead);
-				fputc(chData, fOut);
-				fflush(fOut);
-				matchLength--;
-			}
-			if (compressCount == fileSize)
-				break;
-		}
-		else
-		{
-			//原字符
-			chData = fgetc(fIn);
-			fputc(chData, fOut);
-			compressCount++;
-		}
-		bitCount--;
-		ch <<= 1;
+		if (_isLast)
+			break;
 	}
 
 	fclose(fIn);
-	fclose(fFlag);
-	fclose(fOut);
-	fclose(fRead);
 }

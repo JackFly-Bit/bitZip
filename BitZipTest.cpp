@@ -38,11 +38,24 @@ int main()
 }
 #endif
 
+#if 0
 #include "LZ77.h"
+
 int main()
 {
 	LZ77 lz;
 	lz.CompressLZ77("1.txt");
 	lz.UNCompressLZ77("111.txt");
+	return 0;
+}
+#endif
+
+#include "BitZip.h"
+
+int main()
+{
+	BitZip bz;
+	bz.Deflate("1.txt");
+
 	return 0;
 }
