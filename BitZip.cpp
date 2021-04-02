@@ -4,6 +4,7 @@
 #include <iostream>
 using namespace std;
 #include <assert.h>
+#include <map>
 
 // 区间码结构体
 struct IntervalSolution
@@ -82,14 +83,7 @@ static IntervalSolution lengthInterval[] = {
 /******************************************************************/
 
 
-// 解码表---在解码的时候再添加
-struct DecodeTable
-{
-	int _decodeLen;   // 编码位长
-	int _code;       // 首字符编码
-	ush _lenCount;    // 相同编码长度个数
-	ush _charIndex;   // 符号索引
-};
+
 
 
 BitZip::BitZip()
@@ -366,8 +360,7 @@ void BitZip::CompressBlock()
 		{
 			// _byteLenDate[i]:长度
 			// _distData[]:距离
-			CompressLengthDist(_byteLenData[i], _distData[distIdx++], bitInfo, bitInfoC
-);
+			CompressLengthDist(_byteLenData[i], _distData[distIdx++], bitInfo, bitInfoCount);
 		}
 		else
 		{
@@ -503,21 +496,21 @@ void BitZip::GenerateCode(vector<ElemInfo>& codeInfo)
 	}
 
 	//2.按照范式huffman树的规则来计算编码
-	temp[index++]._chCode = 0;
+	//temp[index++]._chCode = 0;
 	codeInfo[temp[index++]._ch]._chCode = 0;
 	size_t elemCount = 1;
 	while (index < temp.size())
 	{
 		if (temp[index]._len == temp[index - 1]._len)
 		{
-			temp[index]._chCode = temp[index - 1]._chCode + 1;
-			codeInfo[temp[index]._ch]._chCode = temp[index - 1]._chCode + 1;
+			//temp[index]._chCode = temp[index - 1]._chCode + 1;
+			codeInfo[temp[index]._ch]._chCode = codeInfo[temp[index - 1]._ch]._chCode + 1;
 			elemCount++;
 		}
 		else
 		{
-			temp[index]._chCode = (temp[index - elemCount]._chCode + elemCount) << (temp[index]._len - temp[index - 1]._len);
-			codeInfo[temp[index]._ch]._chCode = (temp[index - elemCount]._chCode + elemCount) << (temp[index]._len - temp[index - 1]._len);
+			//temp[index]._chCode = (temp[index - elemCount]._chCode + elemCount) << (temp[index]._len - temp[index - 1]._len);
+			codeInfo[temp[index]._ch]._chCode = (codeInfo[temp[index - elemCount]._ch]._chCode + elemCount) << (codeInfo[temp[index]._ch]._len - codeInfo[temp[index - 1]._ch]._len);
 			elemCount = 1;
 		}
 
@@ -608,24 +601,180 @@ void BitZip::CompressLengthDist(uch length, ush dist, uch& bitInfo, uch& bitInfo
 
 void BitZip::unDeflate(const string& filePath)
 {
+	if (filePath.substr(filePath.rfind(".") + 1) != "bzp")
+	{
+		cout << "压缩文件格式不对，无法解压缩" << endl;
+		return;
+	}
+
 	FILE* fIn = fopen(filePath.c_str(), "rb");
 
+	string fileName(filePath.substr(0, filePath.rfind(".")));
+	fileName += "_d.txt";
+	fOut = fopen(fileName.c_str(), "wb");
+
+	uch ch = 0;
+	uch bitCount = 0;
 	while (true)
 	{
 		_isLast = fgetc(fIn);
+		
 
-		for (ush i = 0; i < 286; i++)
-		{
-			_distInfo[i]._ch = i;
-			_distInfo[i]._len = fputc();
-		}
+		//for (ush i = 0; i < 286; i++)
+		//{
+		//	_distInfo[i]._ch = i;
+		//	_distInfo[i]._len = fputc();
+		//}
+
 		// 1.获取编码位长
+		GetDecodeLen(fIn);
+
 		// 2.生成解码表
+		vector<DecodeTable> byteLenDecTab;
+		GenerateDecodeTab(_byteLenInfo, byteLenDecTab);
+
+		vector<DecodeTable> distDecTab;
+		GenerateDecodeTab(_distInfo, distDecTab);
+
 		// 3.解码
+		while (true)
+		{
+			ush data = UNCompressSymbol(fIn, _byteLenInfo, byteLenDecTab, ch, bitCount);
+			if (data < 256)
+			{
+				//解压缩了一个原字符
+				fputc(data, fOut);
+				fflush(fOut);
+			}
+			else if (data == 256)
+			{
+				//该块解压缩结束
+				break;
+			}
+			else
+			{
+				//data表示一个长度
+
+				//解压缩距离
+				ush dist = UNCompressSymbol(fIn, _distInfo, distDecTab, ch, bitCount);
+
+				//以LZ77的方式还原结果了
+
+			}
+		}
 
 		if (_isLast)
 			break;
 	}
 
 	fclose(fIn);
+	fclose(fOut);
+}
+
+void BitZip::GetDecodeLen(FILE* fIn)
+{
+	_byteLenInfo.clear();
+	for (ush i = 0; i < 286; ++i)
+	{
+		uch len = fgetc(fIn);
+		if (0 != len)
+		{
+			ElemInfo e;
+			e._ch = i;
+			e._len = len;
+			_byteLenInfo.push_back(e);
+		}
+	}
+
+	_distInfo.clear();
+	for (ush i = 0; i < 30; ++i)
+	{
+		uch len = fgetc(fIn);
+		if (0 != len)
+		{
+			ElemInfo e;
+			e._ch = i;
+			e._len = len;
+			_distInfo.push_back(e);
+		}
+	}
+}
+
+void BitZip::GenerateDecodeTab(vector<ElemInfo>& codeInfo, vector<DecodeTable>& decTab)
+{
+	//1.统计相同位长字符个数
+	map<uch, ush> m;
+	for (auto& e : codeInfo)
+		m[e._len]++;
+
+	//2.对读取到的位长信息进行排序
+	sort(codeInfo.begin(), codeInfo.end());
+
+	size_t index = 0;
+	for (auto e : m)
+	{
+		DecodeTable dec;
+		dec._decodeLen = e.first;
+		dec._lenCount = e.second;
+		if (0 == index)
+		{
+			dec._code = 0;
+			dec._charIndex = 0;
+		}
+		else
+		{
+			DecodeTable& prev = decTab.back();
+			dec._charIndex = prev._charIndex + prev._lenCount;
+			dec._code = (prev._code + prev._lenCount) << (dec._decodeLen - prev._decodeLen);
+		}
+
+		decTab.push_back(dec);
+		index++;
+	}
+}
+
+ush BitZip::UNCompressSymbol(FILE* fIn, vector<ElemInfo>& codeInfo, vector<DecodeTable>& decTable, uch& ch, uch& bitCount)
+{
+	ush i = 0;
+	ush codeLen = decTable[0]._decodeLen;
+	ush code = 0;
+	while (codeLen--)
+	{
+		GetNextBit(fIn, code, ch, bitCount);
+	}
+
+	ush num = 0;
+	while ((num = code - decTable[i]._code) >= decTable[i]._lenCount)
+	{
+		i++;
+		//中间可能会有一些长度没有出现，比如：
+		//len:7 ---> code:126
+		//len:9 ---> code:508
+		//次数需要一次性读取两位，但是i只加一次
+		ush lenGap = decTable[i]._decodeLen - decTable[i - 1]._decodeLen;
+		while (lenGap--)
+		{
+			GetNextBit(fIn, code, ch, bitCount);
+		}
+	}
+
+	//找出扩展的比特位
+	num += decTable[i]._charIndex;
+	return codeInfo[num]._ch;
+}
+
+//每次获取一个比特位，放到code中
+void BitZip::GetNextBit(FILE* fIn, ush& code, uch& ch, uch& bitCount)
+{
+	if (0 == bitCount)
+	{
+		ch = fgetc(fIn);
+		bitCount = 8;
+	}
+
+	code <<= 1;
+	if (ch & 0x80)
+		code |= 1;
+
+	ch <<= 1;
 }

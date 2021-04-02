@@ -46,6 +46,16 @@ struct ElemInfo
 	}
 };
 
+
+// 解码表---在解码的时候再添加
+struct DecodeTable
+{
+	int _decodeLen;   // 编码位长
+	int _code;       // 首字符编码
+	ush _lenCount;    // 相同编码长度个数
+	ush _charIndex;   // 符号索引
+};
+
 class BitZip
 {
 public:
@@ -72,6 +82,11 @@ private:
 	void CompressChar(ush ch, uch& bitInfo, uch& bitInfoCount);
 	void CompressLengthDist(uch length, ush dist, uch& bitInfo, uch& bitInfoCount);
 	void Compress(ulg chCode, ush codeLen, uch& bitInfo, uch& bitInfoCount);
+
+	void GetDecodeLen(FILE* fIn);
+	void GenerateDecodeTab(vector<ElemInfo>& codeInfo, vector<DecodeTable>& decTab);
+	ush UNCompressSymbol(FILE* fIn, vector<ElemInfo>& codeInfo, vector<DecodeTable>& decTable, uch& ch, uch& bitCount);
+	void GetNextBit(FILE* fIn, ush& code, uch& ch, uch& bitCount);
 private:
 	uch* _pWin;
 	HashTable _ht;

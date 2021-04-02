@@ -56,6 +56,7 @@ int main()
 {
 	BitZip bz;
 	bz.Deflate("1.txt");
+	bz.unDeflate("1.bzp");
 
 	return 0;
 }
