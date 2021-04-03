@@ -87,6 +87,8 @@ private:
 	void GenerateDecodeTab(vector<ElemInfo>& codeInfo, vector<DecodeTable>& decTab);
 	ush UNCompressSymbol(FILE* fIn, vector<ElemInfo>& codeInfo, vector<DecodeTable>& decTable, uch& ch, uch& bitCount);
 	void GetNextBit(FILE* fIn, ush& code, uch& ch, uch& bitCount);
+
+	void ClearPreBlockInfo();
 private:
 	uch* _pWin;
 	HashTable _ht;

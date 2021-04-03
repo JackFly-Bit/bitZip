@@ -319,8 +319,28 @@ void BitZip::SaveLZ77Result(ush dist, uch length, uch& flag, uch& bitCount, cons
 	}
 }
 
+void ClearPreBlockInfo()
+{
+	for (ush i = 0; i < _byteLenInfo.size(); ++i)
+	{
+		_byteLenInfo[i]._appearCount = 0;
+		_byteLenInfo[i]._len = 0;
+		_byteLenInfo[i]._chCode = 0;
+	}
+
+	for (ush i = 0; i < _distInfo.size(); ++i)
+	{
+		_distInfo[i]._appearCount = 0;
+		_distInfo[i]._len = 0;
+		_distInfo[i]._chCode = 0;
+	}
+}
+
 void BitZip::CompressBlock()
 {
+	//0.清除上个块压缩时的频次信息
+	ClearPreBlockInfo();
+
 	//1.统计每个元素出现的次数
 	StatAppearCount();
 	//2.构建huffman树
@@ -613,18 +633,14 @@ void BitZip::unDeflate(const string& filePath)
 	fileName += "_d.txt";
 	fOut = fopen(fileName.c_str(), "wb");
 
+	///用来辅助LZ77进行解压缩的
+	FILE* f = fopen(fileName.c_str(), "rb");
+
 	uch ch = 0;
 	uch bitCount = 0;
 	while (true)
 	{
-		_isLast = fgetc(fIn);
-		
-
-		//for (ush i = 0; i < 286; i++)
-		//{
-		//	_distInfo[i]._ch = i;
-		//	_distInfo[i]._len = fputc();
-		//}
+		_isLast = fgetc(fIn);	
 
 		// 1.获取编码位长
 		GetDecodeLen(fIn);
@@ -653,13 +669,50 @@ void BitZip::unDeflate(const string& filePath)
 			}
 			else
 			{
-				//data表示一个长度
+				//data表示一个长度在长度分组中的编码
+				//长度的起始值
+				ush length = lengthInterval[data - 257].interval[0];
+
+				uch extraBitCount = lengthInterval[data - 257].extraBit;
+				ush extarData = 0;
+				ush code = 0;
+				while (extraBitCount--)
+				{
+					GetNextBit(fIn, code, ch, bitCount);
+					extarData <<= 1;
+					if (code & 0x01)
+						extarData |= 1;
+				}
+
+				length += extarData;
 
 				//解压缩距离
-				ush dist = UNCompressSymbol(fIn, _distInfo, distDecTab, ch, bitCount);
+				ush distIdx = UNCompressSymbol(fIn, _distInfo, distDecTab, ch, bitCount);
+				ush dist = distInterval[distIdx].interval[0];
 
-				//以LZ77的方式还原结果了
+				extraBitCount = distInterval[distIdx].extraBit;
+				extarData = 0;
+				code = 0;
+				while (extraBitCount--)
+				{
+					GetNextBit(fIn, code, ch, bitCount);
+					extarData <<= 1;
+					if (code & 0x01)
+						extarData |= 1;
+				}
 
+				dist += extarData;
+
+				//////////////////////////////
+				//按照LZ77的方式还原结果
+				fflush(fOut);
+				fseek(f, 0 - dist, SEEK_END);
+				while (length--)
+				{
+					uch ch = fgetc(f);
+					fputc(ch, fOut);
+					fflush(fOut);
+				}
 			}
 		}
 
@@ -669,6 +722,7 @@ void BitZip::unDeflate(const string& filePath)
 
 	fclose(fIn);
 	fclose(fOut);
+	fclose(f);
 }
 
 void BitZip::GetDecodeLen(FILE* fIn)
@@ -777,4 +831,5 @@ void BitZip::GetNextBit(FILE* fIn, ush& code, uch& ch, uch& bitCount)
 		code |= 1;
 
 	ch <<= 1;
+	bitCount--;
 }
