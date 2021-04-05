@@ -160,6 +160,9 @@ void BitZip::Deflate(const string& filePath)
 	fileName += ".bzp";
 	fOut = fopen(fileName.c_str(), "wb");
 
+	string strFilePost(filePath.substr(filePath.rfind(".") + 1));
+	strFilePost += "\n";
+	fputs(strFilePost.c_str(), fOut);
 	ush start = 0;
 	uch ch = 0;
 	uch bitCount = 0;
@@ -279,6 +282,8 @@ ush BitZip::LongestMatch(ush matchHead, ush start, ush& curMatchDist)
 		}
 	} while (((matchHead = _ht.GetNext(matchHead)) > limit) && maxMatchCount--);
 
+	if (curMatchDist > MAX_DIST)
+		maxLen = 0;
 	return maxLen;
 }
 
@@ -448,11 +453,11 @@ void BitZip::StatAppearCount()
 
 ush BitZip::GetIntervalCodeIndex(uch len)
 {
-	len += 3;
+	ush length =len + 3;
 	uch size = sizeof(lengthInterval) / sizeof(lengthInterval[0]);
 	for (uch i = 0; i < size; ++i)
 	{
-		if (len >= lengthInterval[i].interval[0] && len <= lengthInterval[i].interval[1])
+		if (length >= lengthInterval[i].interval[0] && length <= lengthInterval[i].interval[1])
 		{
 			return i + 257;
 		}
@@ -630,17 +635,22 @@ void BitZip::unDeflate(const string& filePath)
 	FILE* fIn = fopen(filePath.c_str(), "rb");
 
 	string fileName(filePath.substr(0, filePath.rfind(".")));
-	fileName += "_d.txt";
+	fileName += "_d.";
+
+	string strFilePost;
+	GetLine(fIn, strFilePost);
+	fileName += strFilePost;
+
+	//fileName += "_d.png";
 	fOut = fopen(fileName.c_str(), "wb");
 
 	///用来辅助LZ77进行解压缩的
 	FILE* f = fopen(fileName.c_str(), "rb");
-
-	uch ch = 0;
-	uch bitCount = 0;
+	_isLast = false;
 	while (true)
 	{
-		_isLast = fgetc(fIn);	
+		if (fgetc(fIn) == 1)
+		_isLast = true;	
 
 		// 1.获取编码位长
 		GetDecodeLen(fIn);
@@ -653,6 +663,8 @@ void BitZip::unDeflate(const string& filePath)
 		GenerateDecodeTab(_distInfo, distDecTab);
 
 		// 3.解码
+		uch ch = 0;
+		uch bitCount = 0;
 		while (true)
 		{
 			ush data = UNCompressSymbol(fIn, _byteLenInfo, byteLenDecTab, ch, bitCount);
@@ -832,4 +844,16 @@ void BitZip::GetNextBit(FILE* fIn, ush& code, uch& ch, uch& bitCount)
 
 	ch <<= 1;
 	bitCount--;
+}
+
+void BitZip::GetLine(FILE* fIn, std::string& s)
+{
+	uch ch;
+	while (!feof(fIn))
+	{
+		ch = fgetc(fIn);
+		if ('\n' == ch)
+			break;
+		s += ch;
+	}
 }

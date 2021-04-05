@@ -89,6 +89,7 @@ private:
 	void GetNextBit(FILE* fIn, ush& code, uch& ch, uch& bitCount);
 
 	void ClearPreBlockInfo();
+	void GetLine(FILE* fIn, string& s);
 private:
 	uch* _pWin;
 	HashTable _ht;
